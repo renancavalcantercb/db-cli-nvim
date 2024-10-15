@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -40,27 +41,61 @@ func main() {
 		log.Fatalf("Error retrieving columns: %v", err)
 	}
 
-	results := make([][]byte, len(columns))
-	scanArgs := make([]interface{}, len(columns))
-	for i := range results {
-		scanArgs[i] = &results[i]
+	colWidths := make([]int, len(columns))
+	for i, col := range columns {
+		colWidths[i] = len(col)
 	}
 
+	var allRows [][]string
 	for rows.Next() {
+		rowData := make([]sql.NullString, len(columns))
+		scanArgs := make([]interface{}, len(columns))
+		for i := range rowData {
+			scanArgs[i] = &rowData[i]
+		}
+
 		err = rows.Scan(scanArgs...)
 		if err != nil {
 			log.Fatalf("Error scanning row: %v", err)
 		}
 
-		var result string
-		for i, col := range results {
-			if i > 0 {
-				result += " | "
+		row := make([]string, len(columns))
+		for i, col := range rowData {
+			row[i] = col.String
+			if len(row[i]) > colWidths[i] {
+				colWidths[i] = len(row[i])
 			}
-			result += string(col)
 		}
-		fmt.Println(result)
+		allRows = append(allRows, row)
 	}
+
+	var sb strings.Builder
+	format := make([]string, len(columns))
+	for i, width := range colWidths {
+		format[i] = fmt.Sprintf("%%-%ds", width)
+	}
+
+	for i, col := range columns {
+		if i > 0 {
+			sb.WriteString(" | ")
+		}
+		sb.WriteString(fmt.Sprintf(format[i], col))
+	}
+	sb.WriteString("\n")
+	sb.WriteString(strings.Repeat("-", sb.Len()-1))
+	sb.WriteString("\n")
+
+	for _, row := range allRows {
+		for i, col := range row {
+			if i > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString(fmt.Sprintf(format[i], col))
+		}
+		sb.WriteString("\n")
+	}
+
+	fmt.Println(sb.String())
 
 	if err = rows.Err(); err != nil {
 		log.Fatalf("Error processing rows: %v", err)
